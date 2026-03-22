@@ -14,7 +14,8 @@
     *   Implementada **captura de cookies (`connect.sid`)** necesaria para la API interna.
     *   **Autenticación Proactiva**: El cliente realiza el login automáticamente antes de la primera petición si no tiene sesión válida.
     *   **Manejo de Errores**: Re-autenticación automática al detectar errores 401 o el error 500 específico de Yourttoo (*"sesión caducada"*).
-4.  **Despliegue**: Proyecto dockerizado y desplegado en Google Cloud Run.
+4.  **Despliegue**: Proyecto dockerizado y desplegado inicialmente en Google Cloud Run.
+5.  **GitHub Sincronizado**: El repositorio `FernandoSFT/MCP-yourttoo-safetour` contiene ahora el código completo y la documentación técnica corregida.
 
 ## 🚧 Bloqueo Actual (Externo)
 
@@ -29,7 +30,7 @@ El proyecto está bloqueado por **permisos en la cuenta de Yourttoo** (`info@saf
 1.  **Validación de Datos**: Una vez habilitado el acceso, verificar que los objetos devueltos por la API v2 coinciden con los tipados del MCP.
 2.  **Optimización de Búsqueda**: Implementar sistema de resolución de nombres de destino (ej: convertir "Japón" a su ID correspondiente en Yourttoo) usando `get_inventory` como cache interno.
 3.  **Refinado de Formato**: Ajustar la salida de las herramientas para que Notion AI las presente de forma atractiva al usuario final.
-4.  **Producción**: Realizar el push final al repositorio de GitHub indicado por el cliente.
+4.  **Producción**: Sincronización continua de mejoras tras recibir autorización de la API.
 
 ---
 *Documento actualizado el 2026-03-22*
