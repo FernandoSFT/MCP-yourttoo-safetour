@@ -68,124 +68,117 @@ async function apiPost(endpoint: string, payload: any = {}): Promise<any> {
   }
 }
 
-// Initialize MCP Server
-const mcpServer = new Server(
-  {
-    name: "yourttoo-mcp-server",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
+function createMcpServer() {
+  const mcpServer = new Server(
+    {
+      name: "yourttoo-mcp-server",
+      version: "1.0.0",
     },
-  }
-);
-
-mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "get_inventory",
-        description: "Obtener inventario base de países, ciudades, agencias (providers) o etiquetas (tags).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            resource_type: {
-              type: "string",
-              enum: ["countries", "cities", "providers", "tags"],
-            }
-          },
-          required: ["resource_type"]
-        }
+    {
+      capabilities: {
+        tools: {},
       },
-      {
-        name: "search_programs",
-        description: "Buscar programas turísticos mediante filtros.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            countries: { type: "array", items: { type: "string" } },
-            cities: { type: "array", items: { type: "string" } },
-            tags: { type: "array", items: { type: "string" } },
-            providers: { type: "array", items: { type: "string" } },
-            pricemin: { type: "number" },
-            pricemax: { type: "number" },
-            mindays: { type: "number" },
-            maxdays: { type: "number" },
-            maxresults: { type: "number", default: 10 },
-            page: { type: "number", default: 0 }
+    }
+  );
+
+  mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "get_inventory",
+          description: "Obtener inventario base de países, ciudades, agencias (providers) o etiquetas (tags).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              resource_type: {
+                type: "string",
+                enum: ["countries", "cities", "providers", "tags"],
+              }
+            },
+            required: ["resource_type"]
+          }
+        },
+        {
+          name: "search_programs",
+          description: "Buscar programas turísticos mediante filtros.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              countries: { type: "array", items: { type: "string" } },
+              cities: { type: "array", items: { type: "string" } },
+              tags: { type: "array", items: { type: "string" } },
+              providers: { type: "array", items: { type: "string" } },
+              pricemin: { type: "number" },
+              pricemax: { type: "number" },
+              mindays: { type: "number" },
+              maxdays: { type: "number" },
+              maxresults: { type: "number", default: 10 },
+              page: { type: "number", default: 0 }
+            }
+          }
+        },
+        {
+          name: "fetch_program",
+          description: "Descargar detalle de un programa.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              type: { type: "string", default: "program" },
+              code: { type: "string" }
+            },
+            required: ["type", "code"]
           }
         }
-      },
-      {
-        name: "fetch_program",
-        description: "Descargar detalle de un programa.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            type: { type: "string", default: "program" },
-            code: { type: "string" }
-          },
-          required: ["type", "code"]
-        }
-      }
-    ]
-  };
-});
-
-mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    if (request.params.name === "get_inventory") {
-      const type = String(request.params.arguments?.resource_type);
-      const data = await apiPost(`/apiv2/find`, { type });
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-    }
-    if (request.params.name === "search_programs") {
-      const args = request.params.arguments || {};
-      const payload: any = { filter: {} };
-      if (args.countries) payload.filter.countries = args.countries;
-      if (args.cities) payload.filter.cities = args.cities;
-      if (args.tags) payload.filter.tags = args.tags;
-      if (args.providers) payload.filter.providers = args.providers;
-      if (args.pricemin) payload.filter.pricemin = args.pricemin;
-      if (args.pricemax) payload.filter.pricemax = args.pricemax;
-      if (args.mindays) payload.filter.mindays = args.mindays;
-      if (args.maxdays) payload.filter.maxdays = args.maxdays;
-      payload.filter.maxresults = args.maxresults || 20;
-      payload.filter.page = args.page || 0;
-      const data = await apiPost(`/apiv2/search`, payload);
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-    }
-    if (request.params.name === "fetch_program") {
-      const { type, code } = request.params.arguments as any;
-      const data = await apiPost(`/apiv2/fetch`, { type, code });
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-    }
-    throw new Error(`Unknown tool: ${request.params.name}`);
-  } catch (error: any) {
-    const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
-    return {
-      isError: true,
-      content: [{ type: "text", text: `Error calling Yourttoo API: ${errorMsg}` }]
+      ]
     };
-  }
-});
+  });
 
-// Initialize Global Transport for Streamable HTTP
+  mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    try {
+      if (request.params.name === "get_inventory") {
+        const type = String(request.params.arguments?.resource_type);
+        const data = await apiPost(`/apiv2/find`, { type });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
+      if (request.params.name === "search_programs") {
+        const args = request.params.arguments || {};
+        const payload: any = { filter: {} };
+        if (args.countries) payload.filter.countries = args.countries;
+        if (args.cities) payload.filter.cities = args.cities;
+        if (args.tags) payload.filter.tags = args.tags;
+        if (args.providers) payload.filter.providers = args.providers;
+        if (args.pricemin) payload.filter.pricemin = args.pricemin;
+        if (args.pricemax) payload.filter.pricemax = args.pricemax;
+        if (args.mindays) payload.filter.mindays = args.mindays;
+        if (args.maxdays) payload.filter.maxdays = args.maxdays;
+        payload.filter.maxresults = args.maxresults || 20;
+        payload.filter.page = args.page || 0;
+        const data = await apiPost(`/apiv2/search`, payload);
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
+      if (request.params.name === "fetch_program") {
+        const { type, code } = request.params.arguments as any;
+        const data = await apiPost(`/apiv2/fetch`, { type, code });
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      }
+      throw new Error(`Unknown tool: ${request.params.name}`);
+    } catch (error: any) {
+      const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      return {
+        isError: true,
+        content: [{ type: "text", text: `Error calling Yourttoo API: ${errorMsg}` }]
+      };
+    }
+  });
+
+  return mcpServer;
+}
+
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-
-const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: undefined as any, // Stateless: una petición = una respuesta
-});
-
-// Connect transport globally to avoid memory leaks on every request
-mcpServer.connect(transport as any).catch(console.error);
 
 // Setup Express app
 const app = express();
 app.use(cors());
-// IMPORTANT: we need to parse JSON bodies if we are inspecting or passing req.body
-app.use(express.json());
 
 // Healthcheck
 app.get("/health", (req, res) => {
@@ -195,8 +188,13 @@ app.get("/health", (req, res) => {
 // MCP JSON-RPC Endpoint
 app.post("/mcp", async (req, res) => {
   try {
-    // Usamos el transporte global para manejar la petición HTTP
-    await transport.handleRequest(req, res, req.body);
+    const mcpServer = createMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined as any, // Stateless mode
+    });
+    
+    await mcpServer.connect(transport as any);
+    await transport.handleRequest(req, res);
   } catch (error) {
     console.error("Error handling MCP request:", error);
     if (!res.headersSent) {
