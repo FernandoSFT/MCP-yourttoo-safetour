@@ -1,5 +1,7 @@
+import express from "express";
+import cors from "cors";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -15,17 +17,15 @@ const EMAIL = process.env.YOURTTOO_EMAIL;
 const PASSWORD = process.env.YOURTTOO_PASSWORD;
 
 if (!EMAIL || !PASSWORD) {
-  console.error("Error: YOURTTOO_EMAIL and YOURTTOO_PASSWORD must be defined in the .env file.");
-  process.exit(1);
+  console.warn("WARNING: YOURTTOO_EMAIL and YOURTTOO_PASSWORD not defined. Make sure they are provided in Cloud Run environment.");
 }
 
 // Auth state
 let currentAuth: { userid: string; accessToken: string } | null = null;
+let sseTransport: SSEServerTransport | null = null;
 
-// Authenticate and get token
 async function authenticate(forceRefresh = false) {
   if (currentAuth && !forceRefresh) return currentAuth;
-
   try {
     const response = await axios.post(`${API_BASE_URL}/auth`, {
       email: EMAIL,
@@ -44,7 +44,6 @@ async function authenticate(forceRefresh = false) {
   }
 }
 
-// Helper to make API requests with automatic authentication
 async function apiPost(endpoint: string, payload: any = {}): Promise<any> {
   const auth = await authenticate();
   try {
@@ -58,7 +57,6 @@ async function apiPost(endpoint: string, payload: any = {}): Promise<any> {
     return response.data;
   } catch (error: any) {
     if (error.response?.status === 401 || error.response?.status === 403) {
-      // Token might be expired, retry once
       const refreshedAuth = await authenticate(true);
       const retryResponse = await axios.post(`https://api.yourttoo.com${endpoint}`, payload, {
         headers: {
@@ -74,7 +72,7 @@ async function apiPost(endpoint: string, payload: any = {}): Promise<any> {
 }
 
 // Initialize MCP Server
-const server = new Server(
+const mcpServer = new Server(
   {
     name: "yourttoo-mcp-server",
     version: "1.0.0",
@@ -86,8 +84,7 @@ const server = new Server(
   }
 );
 
-// Register Tools
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
@@ -99,7 +96,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             resource_type: {
               type: "string",
               enum: ["countries", "cities", "providers", "tags"],
-              description: "El tipo de recurso de inventario a obtener."
             }
           },
           required: ["resource_type"]
@@ -107,19 +103,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "search_programs",
-        description: "Buscar programas turísticos mediante filtros (país, ciudad, duración, precio, etc.).",
+        description: "Buscar programas turísticos mediante filtros.",
         inputSchema: {
           type: "object",
           properties: {
-            countries: { type: "array", items: { type: "string" }, description: "Ej: ['tr', 'es']" },
-            cities: { type: "array", items: { type: "string" }, description: "Ej: ['antakya-tr']" },
+            countries: { type: "array", items: { type: "string" } },
+            cities: { type: "array", items: { type: "string" } },
             tags: { type: "array", items: { type: "string" } },
             providers: { type: "array", items: { type: "string" } },
             pricemin: { type: "number" },
             pricemax: { type: "number" },
             mindays: { type: "number" },
             maxdays: { type: "number" },
-            maxresults: { type: "number", default: 10, description: "Max 100" },
+            maxresults: { type: "number", default: 10 },
             page: { type: "number", default: 0 }
           }
         }
@@ -130,8 +126,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            type: { type: "string", description: "Tipo (ej: 'program')" },
-            code: { type: "string", description: "Código del programa" }
+            type: { type: "string", default: "program" },
+            code: { type: "string" }
           },
           required: ["type", "code"]
         }
@@ -140,23 +136,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Tool Handlers
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     if (request.params.name === "get_inventory") {
       const type = String(request.params.arguments?.resource_type);
-      // Ensure endpoint starts with /apiv2/
       const data = await apiPost(`/apiv2/find`, { type });
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
-      };
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
-
     if (request.params.name === "search_programs") {
       const args = request.params.arguments || {};
       const payload: any = { filter: {} };
-      
-      // Map arguments to filter payload
       if (args.countries) payload.filter.countries = args.countries;
       if (args.cities) payload.filter.cities = args.cities;
       if (args.tags) payload.filter.tags = args.tags;
@@ -167,21 +156,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (args.maxdays) payload.filter.maxdays = args.maxdays;
       payload.filter.maxresults = args.maxresults || 20;
       payload.filter.page = args.page || 0;
-
       const data = await apiPost(`/apiv2/search`, payload);
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
-      };
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
-
     if (request.params.name === "fetch_program") {
       const { type, code } = request.params.arguments as any;
       const data = await apiPost(`/apiv2/fetch`, { type, code });
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }]
-      };
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
-
     throw new Error(`Unknown tool: ${request.params.name}`);
   } catch (error: any) {
     const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
@@ -192,14 +174,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start Server
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Yourttoo MCP Server running on stdio");
-}
+// Setup Express app
+const app = express();
+app.use(cors());
 
-main().catch((error) => {
-  console.error("Fatal error starting server:", error);
-  process.exit(1);
+// Healthcheck
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// SSE endpoint for agent connections
+app.get("/sse", async (req, res) => {
+  sseTransport = new SSEServerTransport("/message", res);
+  await mcpServer.connect(sseTransport);
+  console.log("Client connected via SSE");
+});
+
+// Message endpoint
+app.post("/message", async (req, res) => {
+  if (!sseTransport) {
+    return res.status(503).send("SSE connection not established");
+  }
+  await sseTransport.handlePostMessage(req, res);
+});
+
+// Start Express server
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Yourttoo MCP Server is running on port ${PORT}`);
+  console.log(`SSE URL: http://localhost:${PORT}/sse`);
 });
