@@ -7,10 +7,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
-import dotenv from "dotenv";
-
-// Load environment variables from .env file
-dotenv.config();
+import "dotenv/config.js";
 
 const API_BASE_URL = "https://api.yourttoo.com/apiv2";
 const EMAIL = process.env.YOURTTOO_EMAIL;
