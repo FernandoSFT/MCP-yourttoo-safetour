@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -19,7 +19,7 @@ if (!EMAIL || !PASSWORD) {
 
 // Auth state
 let currentAuth: { userid: string; accessToken: string } | null = null;
-let sseTransport: SSEServerTransport | null = null;
+
 
 async function authenticate(forceRefresh = false) {
   if (currentAuth && !forceRefresh) return currentAuth;
@@ -171,33 +171,51 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// Initialize Global Transport for Streamable HTTP
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+
+const transport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: undefined as any, // Stateless: una petición = una respuesta
+});
+
+// Connect transport globally to avoid memory leaks on every request
+mcpServer.connect(transport as any).catch(console.error);
+
 // Setup Express app
 const app = express();
 app.use(cors());
+// IMPORTANT: we need to parse JSON bodies if we are inspecting or passing req.body
+app.use(express.json());
 
 // Healthcheck
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// SSE endpoint for agent connections
-app.get("/sse", async (req, res) => {
-  sseTransport = new SSEServerTransport("/message", res);
-  await mcpServer.connect(sseTransport);
-  console.log("Client connected via SSE");
+// MCP JSON-RPC Endpoint
+app.post("/mcp", async (req, res) => {
+  try {
+    // Usamos el transporte global para manejar la petición HTTP
+    await transport.handleRequest(req, res, req.body);
+  } catch (error) {
+    console.error("Error handling MCP request:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal Server Error in MCP Transport" });
+    }
+  }
 });
 
-// Message endpoint
-app.post("/message", async (req, res) => {
-  if (!sseTransport) {
-    return res.status(503).send("SSE connection not established");
-  }
-  await sseTransport.handlePostMessage(req, res);
+app.get("/mcp", (req, res) => {
+  res.status(405).json({ error: "Method not allowed. Use POST." });
+});
+
+app.delete("/mcp", (req, res) => {
+  res.status(405).json({ error: "Method not allowed. Use POST." });
 });
 
 // Start Express server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Yourttoo MCP Server is running on port ${PORT}`);
-  console.log(`SSE URL: http://localhost:${PORT}/sse`);
+  console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
 });
