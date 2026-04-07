@@ -1,6 +1,6 @@
 import axios from "axios";
-import { config } from "../config";
-import { authenticate } from "./auth";
+import { config } from "../config.js";
+import { authenticate } from "./auth.js";
 
 export async function apiPost(endpoint: string, payload: any = {}): Promise<any> {
     // Ensure endpoint has leading slash

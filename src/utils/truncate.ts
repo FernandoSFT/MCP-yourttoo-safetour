@@ -1,4 +1,4 @@
-import { config } from "../config";
+import { config } from "../config.js";
 
 /**
  * Truncates long text to prevent exceeding LLM context limits.

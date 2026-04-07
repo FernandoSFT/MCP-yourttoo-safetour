@@ -1,5 +1,5 @@
-import { apiPost } from "../api/yourttooClient.ts";
-import { config } from "../config.ts";
+import { apiPost } from "../api/yourttooClient.js";
+import { config } from "../config.js";
 
 interface CacheItem<T> {
   data: T;
