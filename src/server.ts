@@ -11,6 +11,7 @@ import { checkAvailability } from "./tools/checkAvailability.js";
 import { getInventory } from "./tools/getInventory.js";
 import { comparePrograms } from "./tools/compare_programs.js";
 import { getBooking } from "./tools/getBooking.js";
+import { debugProgramShape } from "./tools/debugProgramShape.js";
 
 export const TOOLS = [
   {
@@ -109,6 +110,19 @@ export const TOOLS = [
       required: ["locator"],
     },
   },
+  {
+    name: "debug_program_shape",
+    description: "Diagnóstico: muestra claves y estructura resumida de un programa Yourttoo sin devolver el objeto completo. Usar solo para depurar normalizadores.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "Código del programa a inspeccionar." },
+        max_depth: { type: "number", default: 2, description: "Profundidad máxima de inspección (máx. 3)." },
+        include_samples: { type: "boolean", default: false, description: "Incluye pequeñas muestras de valores primitivos. No recomendado salvo diagnóstico puntual." },
+      },
+      required: ["code"],
+    },
+  },
 ];
 
 export function createMcpServer() {
@@ -144,6 +158,9 @@ export function createMcpServer() {
           break;
         case "get_booking":
           resultText = await getBooking(args);
+          break;
+        case "debug_program_shape":
+          resultText = await debugProgramShape(args);
           break;
         default:
           throw new Error(`Tool unknown: ${name}`);
