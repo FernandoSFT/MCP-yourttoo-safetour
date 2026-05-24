@@ -117,8 +117,16 @@ export const TOOLS = [
       type: "object",
       properties: {
         code: { type: "string", description: "Código del programa a inspeccionar." },
-        max_depth: { type: "number", default: 2, description: "Profundidad máxima de inspección (máx. 3)." },
+        section: {
+          type: "string",
+          enum: ["all", "included", "itinerary", "availability", "pricesbymonth", "provider", "categories", "hotels"],
+          default: "all",
+          description: "Sección concreta a inspeccionar para evitar respuestas largas.",
+        },
+        max_depth: { type: "number", default: 2, description: "Profundidad máxima de inspección (máx. 4)." },
+        max_array_items: { type: "number", default: 1, description: "Número de elementos de array a inspeccionar (máx. 3)." },
         include_samples: { type: "boolean", default: false, description: "Incluye pequeñas muestras de valores primitivos. No recomendado salvo diagnóstico puntual." },
+        max_chars: { type: "number", default: 2500, description: "Límite máximo de caracteres de salida para esta llamada (máx. 5000)." },
       },
       required: ["code"],
     },
