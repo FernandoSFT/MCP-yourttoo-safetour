@@ -2,6 +2,20 @@ import { apiPost } from "../api/yourttooClient.js";
 import { formatPrice } from "../utils/formatters.js";
 import { truncateResponse } from "../utils/truncate.js";
 import { resolveDestination, resolveCitySlugs } from "../utils/resolvers.js";
+import { getProgramDays, getProviderName } from "../normalizers/programNormalizers.js";
+
+function numeric(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
 
 export async function searchPrograms(args: any) {
   const {
@@ -14,41 +28,39 @@ export async function searchPrograms(args: any) {
     min_days,
     max_days,
     page = 0,
+    limit = 3,
     // Post-filters
     program_name,
     category,
-    language,
     traveler_type,
   } = args;
 
-  // 1. Resolve destination to slugs
   let resolvedCountry = "";
-  let resolvedCities = [...cities];
+  let resolvedCities = Array.isArray(cities) ? [...cities] : [];
 
   if (destination) {
     const res = await resolveDestination(destination);
     if (res.countrySlug) resolvedCountry = res.countrySlug;
     if (res.citySlug && !resolvedCities.includes(res.citySlug)) {
-        resolvedCities.push(res.citySlug);
+      resolvedCities.push(res.citySlug);
     }
   }
 
-  // 2. Further resolve cities if country is known
   if (resolvedCountry && resolvedCities.length > 0) {
-      resolvedCities = await resolveCitySlugs(resolvedCities, resolvedCountry);
+    resolvedCities = await resolveCitySlugs(resolvedCities, resolvedCountry);
   }
 
-  // 3. API Search
+  const requestedLimit = Math.min(Math.max(Number(limit) || 3, 1), 5);
   const filter: any = {
-    sort: "asc", // Always cheapest first
-    maxresults: 30, // Internal buffer for post-filtering
-    page: page,
+    sort: "asc",
+    maxresults: 30,
+    page,
   };
 
   if (resolvedCountry) filter.countries = [resolvedCountry];
   if (resolvedCities.length > 0) filter.cities = resolvedCities;
-  if (tags.length > 0) filter.tags = tags;
-  if (providers.length > 0) filter.providers = providers;
+  if (Array.isArray(tags) && tags.length > 0) filter.tags = tags;
+  if (Array.isArray(providers) && providers.length > 0) filter.providers = providers;
   if (min_price != null) filter.pricemin = min_price;
   if (max_price != null) filter.pricemax = max_price;
   if (min_days != null) filter.mindays = min_days;
@@ -57,53 +69,69 @@ export async function searchPrograms(args: any) {
   const response = await apiPost("/apiv2/search", { filter });
   let items = Array.isArray(response.items) ? response.items : [];
   const totalFound = response.totalItems || items.length;
+  const beforeLocalFilters = items.length;
 
-  // 4. Server-side post-filtering
+  const minPrice = numeric(min_price);
+  const maxPrice = numeric(max_price);
+  const minDays = numeric(min_days);
+  const maxDays = numeric(max_days);
+
+  items = items.filter((it: any) => {
+    const price = numeric(it.minprice);
+    if (minPrice !== undefined && price !== undefined && price < minPrice) return false;
+    if (maxPrice !== undefined && price !== undefined && price > maxPrice) return false;
+
+    const days = getProgramDays(it);
+    if (days !== undefined) {
+      if (minDays !== undefined && days < minDays) return false;
+      if (maxDays !== undefined && days > maxDays) return false;
+    }
+    return true;
+  });
+
   if (program_name) {
-    const pn = program_name.toLowerCase();
-    items = items.filter((it: any) => it.title?.toLowerCase().includes(pn));
+    const pn = String(program_name).toLowerCase();
+    items = items.filter((it: any) => text(it.title)?.toLowerCase().includes(pn));
   }
 
   if (category) {
-    const cat = category.toLowerCase();
-    items = items.filter((it: any) => it.categoryname?.toLowerCase() === cat);
+    const cat = String(category).toLowerCase();
+    items = items.filter((it: any) => text(it.categoryname)?.toLowerCase() === cat);
   }
 
-  // Note: Language and traveler_type filtering would require individual/fetch 
-  // which can be slow. For now, we search tags/description if requested.
   if (traveler_type) {
-      const type = traveler_type.toLowerCase();
-      items = items.filter((it: any) => 
-          it.tags?.some((t: any) => t.slug?.toLowerCase().includes(type)) ||
-          it.description?.toLowerCase().includes(type)
-      );
+    const type = String(traveler_type).toLowerCase();
+    items = items.filter((it: any) =>
+      it.tags?.some((t: any) => text(t.slug)?.toLowerCase().includes(type) || text(t.label_es)?.toLowerCase().includes(type)) ||
+      text(it.description)?.toLowerCase().includes(type) ||
+      text(it.title)?.toLowerCase().includes(type)
+    );
   }
 
-  // 5. Pick top 5 cheapest from remaining
-  const finalItems = items.slice(0, 5);
+  items.sort((a: any, b: any) => (numeric(a.minprice) ?? Number.MAX_SAFE_INTEGER) - (numeric(b.minprice) ?? Number.MAX_SAFE_INTEGER));
+  const finalItems = items.slice(0, requestedLimit);
 
-  // 6. Format response
   if (finalItems.length === 0) {
-    return "No se encontraron programas que coincidan con todos los filtros. Intenta ampliar el rango de precio o simplificar los tags.";
+    return "No se encontraron programas que coincidan con los filtros. Amplía precio/duración o simplifica destino/tags.";
   }
 
-  let text = `Encontrados ${totalFound} programas. `;
-  if (totalFound > items.length && items.length < 30) {
-      text += `Tras aplicar filtros locales (${category || program_name || traveler_type || 'N/A'}), hay ${items.length} disponibles. `;
-  }
-  text += `Mostrando los 5 más económicos:\n\n`;
+  const discarded = beforeLocalFilters - items.length;
+  const lines: string[] = [];
+  lines.push(`Encontrados ${totalFound} programas. Mostrando ${finalItems.length} mejores opciones filtradas:`);
+  if (discarded > 0) lines.push(`(${discarded} descartados por filtros locales de precio/duración/perfil)`);
+  lines.push("");
 
   finalItems.forEach((it: any, idx: number) => {
-    const priceRange = it.minprice ? `desde ${formatPrice(it.minprice)}/persona` : "Consultar";
-    const airports = it.flights && it.flights.length > 0 
-        ? `${it.flights[0].departure} → ${it.flights[it.flights.length-1].arrival}` 
-        : "No incluye vuelos";
-    
-    text += `${idx + 1}. ${it.code} | ${it.title} | ${it.categoryname || 'Viaje'} | ${priceRange} | ${it.duration || 'N/D'} días | Guía ES ✓ | Min ${it.minpaxoperation || 2} pax | ${it.providername || 'YTT'}\n`;
+    const price = numeric(it.minprice);
+    const days = getProgramDays(it);
+    const provider = getProviderName(it);
+    const categoryLabel = text(it.categoryname) ?? "Viaje";
+    const minPax = numeric(it.minpaxoperation) ?? 2;
+    lines.push(`${idx + 1}. ${it.code} · ${it.title} · ${categoryLabel} · ${price !== undefined ? `desde ${formatPrice(price)}/persona` : "precio a consultar"} · ${days !== undefined ? `${days} días` : "duración no informada"} · Min ${minPax} pax · ${provider}`);
   });
 
-  text += `\n💡 Usa compare_programs con los códigos para comparar, o get_program_detail para ver el resumen detallado.`;
-  text += `\n[Filtros aplicados: ${destination || ''}, ${tags.join(', ')}]`;
+  lines.push("");
+  lines.push("Siguiente: usa get_program_detail con 1 código. Para comparar, usa máximo 3 códigos.");
 
-  return truncateResponse(text);
+  return truncateResponse(lines.join("\n"), 1400);
 }

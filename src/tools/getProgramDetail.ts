@@ -1,6 +1,18 @@
 import { apiPost } from "../api/yourttooClient.js";
-import { formatPrice, summarizeIncluded } from "../utils/formatters.js";
+import { formatPrice } from "../utils/formatters.js";
 import { truncateResponse } from "../utils/truncate.js";
+import {
+  formatDepartureList,
+  normalizeAvailability,
+  normalizeProgram,
+  summarizeItinerary,
+} from "../normalizers/programNormalizers.js";
+
+function shortText(value: string | undefined, max = 220): string | undefined {
+  if (!value) return undefined;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max)}...` : cleaned;
+}
 
 export async function getProgramDetail(args: any) {
   const { code, detail_level = "summary" } = args;
@@ -8,57 +20,68 @@ export async function getProgramDetail(args: any) {
   if (!code) throw new Error("Código de programa requerido.");
 
   const response = await apiPost("/apiv2/fetch", { type: "program", code });
-  
+
   if (!response || !response.code) {
     return `No se ha encontrado el programa con código: ${code}. Asegúrate de usar el código obtenido en search_programs.`;
   }
 
-  const p = response;
-  let text = `DETALLE DEL PROGRAMA: ${p.title} (${p.code})\n\n`;
+  const p = normalizeProgram(response);
+  const titleLine = `${p.title} (${p.code})`;
 
-  // Helper for summarizing itinerary
-  const summarizeItinerary = (itinerary: any[]) => {
-      if (!itinerary || !Array.isArray(itinerary)) return "No disponible.";
-      return itinerary.map(day => `Día ${day.day}: ${day.hotelname || day.route || 'Estancia'}`).join("\n");
-  };
-
-  // Helper for available months
-  const listAvailableMonths = (availability: any[]) => {
-      if (!availability || !Array.isArray(availability)) return "No hay disponibilidad próxima.";
-      const months = availability.map((m: any) => `${m.month} ${m.year} (${m.days?.length || 0} salidas)`);
-      return months.length > 5 ? months.slice(0, 5).join(", ") + "..." : months.join(", ");
-  };
-
-  if (detail_level === "summary") {
-      text += `Resumen:\n- ${p.description?.slice(0, 200)}...\n`;
-      text += `- Precio: desde ${formatPrice(p.minprice)}\n`;
-      text += `- Incluye: ${summarizeIncluded(p.included)}\n`;
-      text += `- Duración: ${p.itinerary?.length || 'N/D'} días\n`;
-      text += `- Proveedor: ${p.providername || 'Dabliu'}\n\n`;
-      text += `Itinerario resumido:\n${summarizeItinerary(p.itinerary).slice(0, 500)}...\n\n`;
-      text += `Meses disponibles: ${listAvailableMonths(p.availability)}\n\n`;
-      text += `💡 Usa detail_level='itinerary' para el día a día, o 'availability' para fechas y precios exactos.`;
-  } else if (detail_level === "itinerary") {
-      text += `ITINERARIO DÍA A DÍA:\n`;
-      p.itinerary?.forEach((day: any) => {
-          text += `Día ${day.day}: ${day.hotelname || 'Estancia'} | ${day.meals || 'Solo alojamiento'} | ${day.highlights || 'Visitas libres'}\n`;
-      });
-  } else if (detail_level === "availability") {
-      text += `DISPONIBILIDAD Y PRECIOS:\n`;
-      p.availability?.forEach((mon: any) => {
-          text += `\n📅 ${mon.month} ${mon.year}:\n`;
-          mon.days?.forEach((d: any) => {
-              text += `- Día ${d.day}: ${formatPrice(d.minprice)} | ${d.available ? 'Disponible' : 'Cerrado'}\n`;
-          });
-      });
-  } else if (detail_level === "full") {
-      // Combination of all, but strictly truncated
-      text += `RESUMEN COMPLETO (Comprimido):\n`;
-      text += `- Descripción: ${p.description?.slice(0, 300)}...\n`;
-      text += `- Incluye: ${summarizeIncluded(p.included)}\n\n`;
-      text += `Itinerario:\n${summarizeItinerary(p.itinerary)}\n\n`;
-      text += `Disponibilidad:\n${listAvailableMonths(p.availability)}\n`;
+  if (detail_level === "micro") {
+    const price = p.minPrice !== undefined ? `desde ${formatPrice(p.minPrice, p.currency)} p/p` : "precio a consultar";
+    const days = p.days !== undefined ? `${p.days} días` : "duración no informada";
+    return truncateResponse(`${titleLine}\n${days} · ${price}\n${p.categoryName || "Viaje"} · ${p.providerName}\nIncluye: ${p.includedSummary}`, 900);
   }
 
-  return truncateResponse(text);
+  if (detail_level === "summary") {
+    const lines: string[] = [];
+    lines.push(`DETALLE DEL PROGRAMA: ${titleLine}`);
+    lines.push("");
+    const description = shortText(p.description ?? p.brief);
+    if (description) lines.push(`Resumen: ${description}`);
+    lines.push(`Precio: ${p.minPrice !== undefined ? `desde ${formatPrice(p.minPrice, p.currency)} p/p` : "consultar"}`);
+    lines.push(`Duración: ${p.days !== undefined ? `${p.days} días` : "no informada"}`);
+    if (p.categoryName) lines.push(`Categoría: ${p.categoryName}`);
+    lines.push(`Proveedor: ${p.providerName}`);
+    lines.push(`Incluye: ${p.includedSummary}`);
+    lines.push("");
+    lines.push("Próximas salidas:");
+    lines.push(formatDepartureList(p.nextDepartures, 4));
+    lines.push("");
+    lines.push("Siguiente paso: usa detail_level='itinerary' o 'availability' solo si necesitas ampliar.");
+    return truncateResponse(lines.join("\n"), 1600);
+  }
+
+  if (detail_level === "itinerary") {
+    const itinerary = summarizeItinerary(response, 20);
+    const lines = [`ITINERARIO: ${titleLine}`, "", ...(itinerary.length > 0 ? itinerary : ["Itinerario no informado."])];
+    return truncateResponse(lines.join("\n"), 2200);
+  }
+
+  if (detail_level === "availability") {
+    const availability = normalizeAvailability(response, 12);
+    const lines = [`DISPONIBILIDAD: ${titleLine}`, ""];
+    if (availability.length === 0) {
+      lines.push("Sin salidas informadas.");
+    } else {
+      availability.forEach((departure) => {
+        const prices = [
+          departure.double !== undefined ? `doble ${formatPrice(departure.double)}` : undefined,
+          departure.single !== undefined ? `single ${formatPrice(departure.single)}` : undefined,
+          departure.triple !== undefined ? `triple ${formatPrice(departure.triple)}` : undefined,
+        ].filter((item): item is string => Boolean(item));
+        lines.push(`- ${departure.label} · ${departure.stateLabel}${prices.length > 0 ? ` · ${prices.join(" · ")}` : ""}`);
+      });
+    }
+    return truncateResponse(lines.join("\n"), 2200);
+  }
+
+  if (detail_level === "full") {
+    const summary = await getProgramDetail({ code, detail_level: "summary" });
+    const itinerary = summarizeItinerary(response, 10).join("\n");
+    return truncateResponse(`${summary}\n\nITINERARIO RESUMIDO:\n${itinerary || "No informado"}`, 3000);
+  }
+
+  return `detail_level no reconocido: ${detail_level}`;
 }
