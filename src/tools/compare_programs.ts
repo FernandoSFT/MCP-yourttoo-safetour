@@ -1,60 +1,49 @@
 import { apiPost } from "../api/yourttooClient.js";
 import { formatPrice } from "../utils/formatters.js";
 import { truncateResponse } from "../utils/truncate.js";
+import { normalizeProgram } from "../normalizers/programNormalizers.js";
 
 export async function comparePrograms(args: any) {
-  const { codes, client_profile } = args;
+  const { codes, client_profile, mode = "compact" } = args;
 
   if (!Array.isArray(codes) || codes.length < 2) {
-    return "Mínimo 2 y máximo 5 códigos de programa para una comparativa correcta.";
-  }
-  
-  if (codes.length > 5) {
-      return "Máximo 5 códigos de programa permitidos. Selecciona los mejores para comparar.";
+    return "Mínimo 2 códigos de programa para comparar.";
   }
 
-  const results: any[] = [];
+  const maxCodes = mode === "verbose" ? 5 : 3;
+  if (codes.length > maxCodes) {
+    return `Máximo ${maxCodes} códigos en modo ${mode}. Selecciona las opciones más relevantes.`;
+  }
+
+  const results = [];
   for (const code of codes) {
     const response = await apiPost("/apiv2/fetch", { type: "program", code });
-    if (response) results.push(response);
+    if (response) results.push(normalizeProgram(response));
   }
 
   if (results.length === 0) return "No se encontró ningún programa para comparar.";
 
-  // Sort by price ascending
-  results.sort((a, b) => (a.minprice || 0) - (b.minprice || 0));
+  results.sort((a, b) => (a.minPrice ?? Number.MAX_SAFE_INTEGER) - (b.minPrice ?? Number.MAX_SAFE_INTEGER));
 
-  let text = `COMPARATIVA DE ${results.length} PROGRAMAS (Orden: Precio ASC)\n\n`;
-  
-  const headers = "| Campo | " + results.map(r => r.code).join(" | ") + " |";
-  const underline = "|---| " + results.map(() => "---|").join("");
-  
-  text += headers + "\n";
-  text += underline + "\n";
-  
-  const addRow = (label: string, field: string) => {
-      return `| ${label} | ` + results.map(r => r[field] || "N/A").join(" | ") + " |\n";
-  };
-  
-  const addFormattedRow = (label: string, formatter: (r: any) => string) => {
-      return `| ${label} | ` + results.map(r => formatter(r)).join(" | ") + " |\n";
-  };
-  
-  text += addFormattedRow("Precio Desde", r => formatPrice(r.minprice));
-  text += addFormattedRow("Duración", r => `${r.itinerary?.length || 'N/D'} d`);
-  text += addFormattedRow("Categoría", r => r.categoryname || "N/A");
-  text += addFormattedRow("Guía ES", r => r.included?.tourescort ? "✓" : "✗");
-  text += addFormattedRow("Transfers", r => (r.included?.arrivaltransfer || r.included?.departuretransfer) ? "✓" : "✗");
-  text += addFormattedRow("Hoteles", r => r.itinerary?.[0]?.starhotel || "N/A");
-  text += addFormattedRow("Proveedor", r => r.providername || "YTT");
+  const lines: string[] = [];
+  lines.push(`COMPARATIVA BREVE (${results.length} programas)`);
+  lines.push("");
+  lines.push("| Código | Días | Desde | Perfil | Próxima salida |");
+  lines.push("|---|---:|---:|---|---|");
+  results.forEach((program) => {
+    const next = program.nextDepartures[0];
+    lines.push(`| ${program.code} | ${program.days ?? "N/D"} | ${program.minPrice !== undefined ? formatPrice(program.minPrice, program.currency) : "Consultar"} | ${program.categoryName ?? "Viaje"} | ${next?.label ?? "Sin salidas"} |`);
+  });
 
-  text += `\n🎯 RECOMENDACIÓN:\n`;
-  if (client_profile) {
-      const best = results[0]; // Simplification for now, cheapest
-      text += `Para el perfil '${client_profile}', la mejor opción es '${best.code} — ${best.title}' por ser la más económica y ajustarse a los criterios base.`;
-  } else {
-      text += `La opción más económica es ${results[0].code} (${formatPrice(results[0].minprice)}).`;
+  lines.push("");
+  const best = results[0];
+  if (best) {
+    if (client_profile) {
+      lines.push(`Recomendación inicial para '${client_profile}': ${best.code} — ${best.title}. Es la opción más competitiva por precio; validar encaje con itinerario antes de proponer.`);
+    } else {
+      lines.push(`Opción más económica: ${best.code} — ${best.title} (${best.minPrice !== undefined ? formatPrice(best.minPrice, best.currency) : "consultar"}).`);
+    }
   }
 
-  return truncateResponse(text);
+  return truncateResponse(lines.join("\n"), 1600);
 }

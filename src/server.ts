@@ -16,38 +16,38 @@ import { debugProgramShape } from "./tools/debugProgramShape.js";
 export const TOOLS = [
   {
     name: "search_programs",
-    description: "Busca programas/circuitos de viaje en Yourttoo ordenados por precio (más económicos primero). Devuelve máximo 5 resultados resumidos tras aplicar filtros. Usa los filtros para afinar la búsqueda al perfil del cliente.",
+    description: "Busca programas Yourttoo con salida compacta. Filtra por destino, precio, duración y perfil; devuelve las mejores opciones.",
     inputSchema: {
       type: "object",
       properties: {
-        destination: { type: "string", description: "País o ciudad. Se resuelve internamente a slug (ej: 'Japón', 'Tokio')." },
-        cities: { type: "array", items: { type: "string" }, description: "Ciudades específicas sugeridas (ej: ['antakya-tr'])." },
-        tags: { type: "array", items: { type: "string" }, description: "Inspiración (ej: 'cultural', 'aventura', 'short-city-breaks')." },
-        providers: { type: "array", items: { type: "string" }, description: "Códigos de proveedores específicos." },
-        min_price: { type: "number", description: "Precio mínimo EUR por persona." },
-        max_price: { type: "number", description: "Precio máximo EUR por persona." },
+        destination: { type: "string", description: "País o ciudad, ej. Japón o Tokio." },
+        cities: { type: "array", items: { type: "string" }, description: "Ciudades concretas." },
+        tags: { type: "array", items: { type: "string" }, description: "Tags/intereses." },
+        providers: { type: "array", items: { type: "string" }, description: "Códigos de proveedor." },
+        min_price: { type: "number", description: "Precio mínimo por persona." },
+        max_price: { type: "number", description: "Precio máximo por persona." },
         min_days: { type: "number", description: "Duración mínima en días." },
         max_days: { type: "number", description: "Duración máxima en días." },
-        page: { type: "number", default: 0, description: "Página de resultados (0-based)." },
-        // Post-filters (server-side)
-        program_name: { type: "string", description: "Filtrar por texto en el título (ej: 'Crucero')." },
-        category: { type: "string", description: "Filtrar por categoría (ej: 'Circuitos', 'Estancias')." },
-        traveler_type: { type: "string", description: "Perfil del viajero (ej: 'parejas', 'familias', 'singles')." },
+        limit: { type: "number", default: 3, description: "Resultados a mostrar (1-5)." },
+        page: { type: "number", default: 0, description: "Página de resultados." },
+        program_name: { type: "string", description: "Texto en título." },
+        category: { type: "string", description: "Categoría exacta." },
+        traveler_type: { type: "string", description: "Perfil/interés del viajero." },
       },
     },
   },
   {
     name: "get_program_detail",
-    description: "Obtiene detalle de un programa. Usa detail_level='summary' primero (por defecto). Solo usa 'itinerary' o 'availability' si el usuario pide explícitamente el día a día o fechas exactas.",
+    description: "Obtiene detalle compacto de un programa. Usa summary por defecto; itinerary/availability solo si hace falta ampliar.",
     inputSchema: {
       type: "object",
       properties: {
-        code: { type: "string", description: "Código del programa (ej: 'YTTJP-2026')." },
+        code: { type: "string", description: "Código del programa." },
         detail_level: {
           type: "string",
-          enum: ["summary", "itinerary", "availability", "full"],
+          enum: ["micro", "summary", "itinerary", "availability", "full"],
           default: "summary",
-          description: "Nivel de detalle de la respuesta.",
+          description: "Nivel de detalle.",
         },
       },
       required: ["code"],
@@ -55,7 +55,7 @@ export const TOOLS = [
   },
   {
     name: "check_availability",
-    description: "Comprueba disponibilidad real de un programa para fecha y acomodación concretas.",
+    description: "Comprueba disponibilidad real para fecha y acomodación concretas.",
     inputSchema: {
       type: "object",
       properties: {
@@ -72,47 +72,48 @@ export const TOOLS = [
   },
   {
     name: "get_inventory",
-    description: "Lista países, ciudades, proveedores o tags disponibles. Útil para conocer el catálogo base.",
+    description: "Lista países, ciudades, proveedores o tags. Filtra ciudades con country_filter o search_text.",
     inputSchema: {
       type: "object",
       properties: {
         resource_type: {
           type: "string",
           enum: ["countries", "cities", "providers", "tags"],
-          description: "Tipo de recurso a obtener.",
+          description: "Tipo de recurso.",
         },
-        country_filter: { type: "string", description: "Código de país (ej: 'jp') para filtrar ciudades." },
-        search_text: { type: "string", description: "Filtrar por texto en el nombre." },
+        country_filter: { type: "string", description: "Código de país, ej. jp." },
+        search_text: { type: "string", description: "Texto para filtrar." },
       },
       required: ["resource_type"],
     },
   },
   {
     name: "compare_programs",
-    description: "Compara 2-5 programas lado a lado en una tabla. Ideal para ayudar al cliente a elegir.",
+    description: "Compara 2-3 programas en modo compacto; hasta 5 si mode='verbose'.",
     inputSchema: {
       type: "object",
       properties: {
-        codes: { type: "array", items: { type: "string" }, description: "Códigos de programas a comparar." },
-        client_profile: { type: "string", description: "Perfil del cliente para recibir una recomendación personalizada." },
+        codes: { type: "array", items: { type: "string" }, description: "Códigos a comparar." },
+        client_profile: { type: "string", description: "Perfil para recomendación." },
+        mode: { type: "string", enum: ["compact", "verbose"], default: "compact" },
       },
       required: ["codes"],
     },
   },
   {
     name: "get_booking",
-    description: "Consulta el detalle de una reserva existente por su localizador.",
+    description: "Consulta una reserva existente por localizador.",
     inputSchema: {
       type: "object",
       properties: {
-        locator: { type: "string", description: "Código localizador de la reserva." },
+        locator: { type: "string", description: "Localizador de reserva." },
       },
       required: ["locator"],
     },
   },
   {
     name: "debug_program_shape",
-    description: "Diagnóstico: muestra claves y estructura resumida de un programa Yourttoo sin devolver el objeto completo. Usar solo para depurar normalizadores.",
+    description: "Diagnóstico temporal: estructura resumida de un programa. Solo para depurar normalizadores.",
     inputSchema: {
       type: "object",
       properties: {
@@ -121,12 +122,12 @@ export const TOOLS = [
           type: "string",
           enum: ["all", "included", "itinerary", "availability", "pricesbymonth", "provider", "categories", "hotels"],
           default: "all",
-          description: "Sección concreta a inspeccionar para evitar respuestas largas.",
+          description: "Sección concreta a inspeccionar.",
         },
-        max_depth: { type: "number", default: 2, description: "Profundidad máxima de inspección (máx. 4)." },
-        max_array_items: { type: "number", default: 1, description: "Número de elementos de array a inspeccionar (máx. 3)." },
-        include_samples: { type: "boolean", default: false, description: "Incluye pequeñas muestras de valores primitivos. No recomendado salvo diagnóstico puntual." },
-        max_chars: { type: "number", default: 2500, description: "Límite máximo de caracteres de salida para esta llamada (máx. 5000)." },
+        max_depth: { type: "number", default: 2, description: "Profundidad máxima (máx. 4)." },
+        max_array_items: { type: "number", default: 1, description: "Elementos de array a inspeccionar (máx. 3)." },
+        include_samples: { type: "boolean", default: false, description: "Incluye muestras de valores." },
+        max_chars: { type: "number", default: 2500, description: "Límite de caracteres (máx. 5000)." },
       },
       required: ["code"],
     },
