@@ -14,7 +14,32 @@ function shortText(value: string | undefined, max = 220): string | undefined {
   return cleaned.length > max ? `${cleaned.slice(0, max)}...` : cleaned;
 }
 
-export async function getProgramDetail(args: any) {
+function buildSummaryText(response: any): string {
+  const p = normalizeProgram(response);
+  const titleLine = `${p.title} (${p.code})`;
+  const lines: string[] = [];
+
+  lines.push(`DETALLE DEL PROGRAMA: ${titleLine}`);
+  lines.push("");
+
+  const description = shortText(p.description ?? p.brief);
+  if (description) lines.push(`Resumen: ${description}`);
+
+  lines.push(`Precio: ${p.minPrice !== undefined ? `desde ${formatPrice(p.minPrice, p.currency)} p/p` : "consultar"}`);
+  lines.push(`Duración: ${p.days !== undefined ? `${p.days} días` : "no informada"}`);
+  if (p.categoryName) lines.push(`Categoría: ${p.categoryName}`);
+  lines.push(`Proveedor: ${p.providerName}`);
+  lines.push(`Incluye: ${p.includedSummary}`);
+  lines.push("");
+  lines.push("Próximas salidas:");
+  lines.push(formatDepartureList(p.nextDepartures, 4));
+  lines.push("");
+  lines.push("Siguiente paso: usa detail_level='itinerary' o 'availability' solo si necesitas ampliar.");
+
+  return lines.join("\n");
+}
+
+export async function getProgramDetail(args: any): Promise<string> {
   const { code, detail_level = "summary" } = args;
 
   if (!code) throw new Error("Código de programa requerido.");
@@ -35,22 +60,7 @@ export async function getProgramDetail(args: any) {
   }
 
   if (detail_level === "summary") {
-    const lines: string[] = [];
-    lines.push(`DETALLE DEL PROGRAMA: ${titleLine}`);
-    lines.push("");
-    const description = shortText(p.description ?? p.brief);
-    if (description) lines.push(`Resumen: ${description}`);
-    lines.push(`Precio: ${p.minPrice !== undefined ? `desde ${formatPrice(p.minPrice, p.currency)} p/p` : "consultar"}`);
-    lines.push(`Duración: ${p.days !== undefined ? `${p.days} días` : "no informada"}`);
-    if (p.categoryName) lines.push(`Categoría: ${p.categoryName}`);
-    lines.push(`Proveedor: ${p.providerName}`);
-    lines.push(`Incluye: ${p.includedSummary}`);
-    lines.push("");
-    lines.push("Próximas salidas:");
-    lines.push(formatDepartureList(p.nextDepartures, 4));
-    lines.push("");
-    lines.push("Siguiente paso: usa detail_level='itinerary' o 'availability' solo si necesitas ampliar.");
-    return truncateResponse(lines.join("\n"), 1600);
+    return truncateResponse(buildSummaryText(response), 1600);
   }
 
   if (detail_level === "itinerary") {
@@ -78,7 +88,7 @@ export async function getProgramDetail(args: any) {
   }
 
   if (detail_level === "full") {
-    const summary = await getProgramDetail({ code, detail_level: "summary" });
+    const summary = buildSummaryText(response);
     const itinerary = summarizeItinerary(response, 10).join("\n");
     return truncateResponse(`${summary}\n\nITINERARIO RESUMIDO:\n${itinerary || "No informado"}`, 3000);
   }
