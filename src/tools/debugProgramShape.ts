@@ -7,6 +7,43 @@ type ShapeOptions = {
   includeSamples?: boolean;
 };
 
+type DebugSection =
+  | "all"
+  | "included"
+  | "itinerary"
+  | "availability"
+  | "pricesbymonth"
+  | "provider"
+  | "categories"
+  | "hotels";
+
+const SECTION_KEYS: Record<DebugSection, string[]> = {
+  all: [
+    "code",
+    "title",
+    "description",
+    "brief",
+    "minprice",
+    "currency",
+    "duration",
+    "days",
+    "categoryname",
+    "minpaxoperation",
+    "provider",
+    "included",
+    "itinerary",
+    "availability",
+    "pricesbymonth",
+  ],
+  included: ["included"],
+  itinerary: ["itinerary"],
+  availability: ["availability"],
+  pricesbymonth: ["pricesbymonth"],
+  provider: ["provider"],
+  categories: ["categories", "categoryname", "categoryparentcode", "tags"],
+  hotels: ["hotelcategories", "itinerary"],
+};
+
 function primitiveType(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
@@ -15,7 +52,7 @@ function primitiveType(value: unknown): string {
 
 function sampleValue(value: unknown): string {
   if (value === null || value === undefined) return String(value);
-  if (typeof value === "string") return value.length > 60 ? `${value.slice(0, 60)}...` : value;
+  if (typeof value === "string") return value.length > 80 ? `${value.slice(0, 80)}...` : value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return `[array:${value.length}]`;
   if (typeof value === "object") return "{object}";
@@ -28,21 +65,26 @@ function describeValue(value: unknown, depth: number, options: Required<ShapeOpt
 
   if (depth >= options.maxDepth) {
     lines.push(type);
+    if (options.includeSamples && type !== "object" && type !== "array") {
+      lines.push(`sample: ${sampleValue(value)}`);
+    }
     return lines;
   }
 
   if (Array.isArray(value)) {
     lines.push(`array(length=${value.length})`);
-    const first = value[0];
-    if (first && typeof first === "object") {
-      lines.push(`first_item_keys: ${Object.keys(first as Record<string, unknown>).join(", ") || "none"}`);
-      const childLines = describeObject(first as Record<string, unknown>, depth + 1, options)
-        .map((line) => `  ${line}`);
-      lines.push(...childLines.slice(0, options.maxArrayItems * 20));
-    } else if (first !== undefined) {
-      lines.push(`first_item_type: ${primitiveType(first)}`);
-      if (options.includeSamples) lines.push(`first_item_sample: ${sampleValue(first)}`);
-    }
+    const items = value.slice(0, options.maxArrayItems);
+    items.forEach((item, index) => {
+      if (item && typeof item === "object") {
+        lines.push(`item_${index}_keys: ${Object.keys(item as Record<string, unknown>).join(", ") || "none"}`);
+        const childLines = describeObject(item as Record<string, unknown>, depth + 1, options)
+          .map((line) => `  ${line}`);
+        lines.push(...childLines);
+      } else if (item !== undefined) {
+        lines.push(`item_${index}_type: ${primitiveType(item)}`);
+        if (options.includeSamples) lines.push(`item_${index}_sample: ${sampleValue(item)}`);
+      }
+    });
     return lines;
   }
 
@@ -67,15 +109,25 @@ function describeObject(obj: Record<string, unknown>, depth: number, options: Re
   });
 }
 
+function normalizeSection(section: unknown): DebugSection {
+  if (typeof section !== "string") return "all";
+  if (section in SECTION_KEYS) return section as DebugSection;
+  return "all";
+}
+
 export async function debugProgramShape(args: any) {
   const {
     code,
     max_depth = 2,
+    max_array_items = 1,
     include_samples = false,
+    section = "all",
+    max_chars = 2500,
   } = args;
 
   if (!code) throw new Error("Código de programa requerido.");
 
+  const selectedSection = normalizeSection(section);
   const response = await apiPost("/apiv2/fetch", { type: "program", code });
 
   if (!response || !response.code) {
@@ -83,34 +135,21 @@ export async function debugProgramShape(args: any) {
   }
 
   const options: Required<ShapeOptions> = {
-    maxDepth: Math.min(Number(max_depth) || 2, 3),
-    maxArrayItems: 1,
+    maxDepth: Math.min(Number(max_depth) || 2, 4),
+    maxArrayItems: Math.min(Math.max(Number(max_array_items) || 1, 1), 3),
     includeSamples: Boolean(include_samples),
   };
 
-  const selectedKeys = [
-    "code",
-    "title",
-    "description",
-    "minprice",
-    "duration",
-    "days",
-    "categoryname",
-    "providername",
-    "included",
-    "itinerary",
-    "availability",
-  ];
-
   const selected: Record<string, unknown> = {};
-  for (const key of selectedKeys) {
+  for (const key of SECTION_KEYS[selectedSection]) {
     if (key in response) selected[key] = response[key];
   }
 
-  let text = `DEBUG PROGRAM SHAPE: ${response.title || "Sin título"} (${response.code})\n\n`;
+  let text = `DEBUG PROGRAM SHAPE: ${response.title || "Sin título"} (${response.code})\n`;
+  text += `Section: ${selectedSection}\n\n`;
   text += `Top-level keys (${Object.keys(response).length}):\n${Object.keys(response).join(", ")}\n\n`;
   text += `Selected structure:\n${describeObject(selected, 0, options).join("\n")}\n\n`;
-  text += "Nota: esta tool es solo de diagnóstico. No devuelve el objeto completo para evitar consumo innecesario de tokens.";
+  text += "Nota: tool temporal de diagnóstico. Usa section='availability' o section='pricesbymonth' para evitar truncado.";
 
-  return truncateResponse(text, 2500);
+  return truncateResponse(text, Math.min(Number(max_chars) || 2500, 5000));
 }
