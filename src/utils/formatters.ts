@@ -54,14 +54,17 @@ export function summarizeIncluded(included: unknown): string {
     if (isRecord(departure) && bool(departure.included)) features.push("Transfer salida ✓");
     const escort = included.tourescort;
     if (isRecord(escort) && bool(escort.included)) {
-        const langs = [
+        const languageEntries: Array<[keyof typeof escort, string]> = [
             ["spanish", "ES"],
             ["english", "EN"],
             ["french", "FR"],
             ["german", "DE"],
             ["italian", "IT"],
             ["portuguese", "PT"],
-        ].filter(([key]) => escort[key] === true).map(([, label]) => label);
+        ];
+        const langs = languageEntries
+            .filter(([key]) => escort[key] === true)
+            .map(([, label]) => label);
         features.push(langs.length > 0 ? `Guía ${langs.join("/")} ✓` : "Guía ✓");
     }
     return features.length > 0 ? features.join(" | ") : "Servicios estándar incluidos";
